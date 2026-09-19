@@ -193,11 +193,12 @@
 
           // ---- Score history (additive; does not touch any test logic above) ----
           const HISTORY_KEY = 'ukpsc_score_history';
+          const [showHistory, setShowHistory] = useState(false);
           const [history, setHistory] = useState(() => {
             try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch (e) { return []; }
           });
 
-          // Test name (shown on the exam, results and Recent scores). Kept in its own key.
+          // Test name (shown on the exam, results and Test History). Kept in its own key.
           const TEST_NAME_KEY = 'ukpsc_test_name';
           const [testName, setTestName] = useState(() => {
             try {
@@ -231,7 +232,7 @@
             if (questions[0] && questions[0].text === sampleQuestions[0].text) return; // ignore the built-in sample
             const { score, correct, incorrect, unattempted } = calculateScore();
             const entry = { date: new Date().toISOString(), name: testName, score, correct, incorrect, unattempted, total: questions.length };
-            const next = [entry, ...history].slice(0, 60);
+            const next = [entry, ...history].slice(0, 100);
             setHistory(next);
             try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch (e) {}
           }, [testState]);
@@ -334,30 +335,55 @@
                       Start Test
                     </button>
                   </div>
+                  <button onClick={() => setShowHistory(true)} className="mt-3 w-full py-3 rounded-xl font-semibold text-brand-700 hover:bg-brand-50 transition-colors">
+                    Test History{history.length > 0 ? ` (${history.length})` : ''}
+                  </button>
                 </div>
 
-                {history.length > 0 && (
-                  <div className="mt-4 bg-white rounded-3xl border border-slate-200 p-5">
-                    <h2 className="font-semibold text-brand-900 mb-3">Recent scores</h2>
-                    <ul className="space-y-3">
-                      {history.slice(0, 7).map((h, i) => (
-                        <li key={h.date + i}>
-                          <div className="flex items-baseline justify-between gap-3">
-                            <p className="min-w-0 truncate font-semibold text-slate-800">{h.name || 'Untitled test'}</p>
-                            <span className="flex-shrink-0 text-sm font-semibold text-slate-800 tabular-nums">{h.score.toFixed(2)} / {h.total}</span>
-                          </div>
-                          <div className="flex items-center gap-3 mt-1.5">
-                            <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-brand-700 rounded-full" style={{ width: `${Math.max(0, Math.min(100, (h.score / h.total) * 100))}%` }}></div>
-                            </div>
-                            <span className="flex-shrink-0 text-xs text-slate-500">{new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+                </div>
+
+                {showHistory && (
+                  <div className="fixed inset-0 z-50 bg-paper overflow-y-auto">
+                    <div className="sticky top-0 z-10 bg-brand-800 text-white h-16 px-3 md:px-6 flex items-center justify-between">
+                      <button onClick={() => setShowHistory(false)} className="px-3 py-2 text-sm font-semibold bg-white/10 hover:bg-white/20 rounded-lg transition-colors">Back</button>
+                      <h2 className="font-bold text-lg tracking-tight">Test History</h2>
+                      <span className="w-16 text-right text-sm text-brand-200 tabular-nums">{history.length} {history.length === 1 ? 'test' : 'tests'}</span>
+                    </div>
+                    <div className="max-w-2xl mx-auto p-4 md:p-8">
+                      {history.length === 0 ? (
+                        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+                          <p className="font-semibold text-brand-900 mb-1">No tests yet</p>
+                          <p className="text-slate-500 text-sm">Each test you submit is saved here with its name, date and marks.</p>
+                        </div>
+                      ) : (
+                        <ul className="space-y-3">
+                          {history.slice(0, 100).map((h, i) => (
+                            <li key={h.date + i} className="bg-white rounded-2xl border border-slate-200 p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-brand-900 truncate">{h.name || 'Untitled test'}</p>
+                                  <p className="text-sm text-slate-500">{new Date(h.date).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+                                </div>
+                                <p className="flex-shrink-0 text-right">
+                                  <span className="text-2xl font-bold text-brand-900 tabular-nums">{h.score.toFixed(2)}</span>
+                                  <span className="text-sm text-slate-500 tabular-nums"> / {h.total}</span>
+                                </p>
+                              </div>
+                              <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-3">
+                                <div className="h-full bg-brand-700 rounded-full" style={{ width: `${Math.max(0, Math.min(100, (h.score / h.total) * 100))}%` }}></div>
+                              </div>
+                              <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-sm">
+                                <span className="font-semibold text-emerald-700">Correct {h.correct}</span>
+                                <span className="font-semibold text-rose-700">Wrong {h.incorrect}</span>
+                                <span className="text-slate-500">Unattempted {h.unattempted}</span>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
                 )}
-                </div>
 
                 {}
                 {showImportModal && (
@@ -405,7 +431,7 @@
                   <div className="fixed inset-0 bg-brand-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
                     <div className="bg-white p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
                       <h2 className="text-2xl font-bold text-brand-900 mb-2">Back to Home?</h2>
-                      <p className="text-slate-500 text-sm">Your answers and this review will be cleared. Your score stays in Recent scores.</p>
+                      <p className="text-slate-500 text-sm">Your answers and this review will be cleared. Your score stays in Test History.</p>
                       <div className="flex gap-3 mt-6">
                         <button onClick={() => setShowResetModal(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition-colors">Cancel</button>
                         <button onClick={confirmReset} className="flex-1 bg-brand-800 hover:bg-brand-900 text-white font-semibold py-3 rounded-xl transition-colors">Back to Home</button>
