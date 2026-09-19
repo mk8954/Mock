@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Prevents pinch-to-zoom so it feels like a native app -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <!-- Installable app (PWA) -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="UKPSC Mock">
+    <meta name="application-name" content="UKPSC Mock">
+
+    <!-- Android/Chrome theme color -->
+    <meta name="theme-color" content="#1f334f">
+
+    <title>UKPSC Daily Mock Test</title>
+
+    <!-- Hind: designed for Latin + Devanagari together, so Hindi and English questions sit on the same baseline -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        if (window.tailwind) {
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        fontFamily: {
+                            sans: ['Hind', '"Noto Sans Devanagari"', 'system-ui', 'sans-serif']
+                        },
+                        colors: {
+                            paper: '#f4f6f8',
+                            brand: {
+                                50: '#eef3f9', 100: '#dbe6f2', 200: '#b9cde3', 300: '#8eaccb', 400: '#5f83ab',
+                                500: '#3f6591', 600: '#2f4f77', 700: '#263f60', 800: '#1f334f', 900: '#162640'
+                            }
+                        }
+                    }
+                }
+            };
+        }
+    </script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        html { -webkit-text-size-adjust: 100%; }
+        body {
+            font-family: 'Hind', 'Noto Sans Devanagari', system-ui, sans-serif;
+            -webkit-tap-highlight-color: transparent; /* Removes blue tap box on mobile */
+            touch-action: manipulation;               /* No double-tap delay */
+            color: #1e293b;
+        }
+        button, label, input, textarea { -webkit-tap-highlight-color: transparent; }
+        button:focus-visible, textarea:focus-visible, input[type="file"]:focus-visible {
+            outline: 2px solid #3f6591;
+            outline-offset: 2px;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+        }
+    </style>
+</head>
+<body class="bg-paper overscroll-none">
+    <div id="root"></div>
+
+    <!-- Registers the service worker (offline support + installability). Needs https:// or localhost. -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('./sw.js').catch(function () {});
+            });
+        }
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Default sample if nothing is loaded
+        const sampleQuestions = [
+          {
+            id: 1,
+            text: "Welcome to your UKPSC App. Please upload a codified JSON file to begin your daily test.",
+            options: ["Okay", "Understood", "Ready", "Let's Go"],
+            correct: 3,
+            explanation: "Upload the files given by the AI to load real questions."
+          }
+        ];
+
+        function UKPSCTestApp() {
+          const TOTAL_TIME = 60 * 60; // 1 hour in seconds
+          
+          const [testState, setTestState] = useState('intro');
+          const [questions, setQuestions] = useState(sampleQuestions);
+          const [currentQIndex, setCurrentQIndex] = useState(0);
+          const [answers, setAnswers] = useState({});
+          const [markedForReview, setMarkedForReview] = useState({});
+          const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
+          const [showGrid, setShowGrid] = useState(false);
+          const [showSubmitModal, setShowSubmitModal] = useState(false);
+          const [showResetModal, setShowResetModal] = useState(false);
+          const [showImportModal, setShowImportModal] = useState(false);
+          const [importText, setImportText] = useState('');
+          const [importError, setImportError] = useState('');
+
+          useEffect(() => {
+            const savedState = localStorage.getItem('ukpsc_test_state_html');
+            if (savedState) {
+              const parsed = JSON.parse(savedState);
+              if (parsed.testState !== 'submitted' && parsed.testState !== 'intro') {
+                setQuestions(parsed.questions || sampleQuestions);
+                setAnswers(parsed.answers || {});
+                setMarkedForReview(parsed.markedForReview || {});
+                setTimeLeft(parsed.timeLeft || TOTAL_TIME);
+                setCurrentQIndex(parsed.currentQIndex || 0);
+                setTestState('paused'); 
+              }
+            }
+          }, []);
+
+          useEffect(() => {
+            if (testState !== 'intro') {
+              const stateToSave = {
+                questions, answers, markedForReview, timeLeft, currentQIndex,
+                testState: testState === 'submitted' ? 'submitted' : 'paused'
+              };
+              localStorage.setItem('ukpsc_test_state_html', JSON.stringify(stateToSave));
+            }
+          }, [answers, markedForReview, timeLeft, currentQIndex, testState]);
+
+          useEffect(() => {
+            let timer;
+            if (testState === 'running' && timeLeft > 0) {
+              timer = setInterval(() => {
+                setTimeLeft((prev) => {
+                  if (prev <= 1) {
+                    clearInterval(timer);
+                    handleForceSubmit();
+                    return 0;
+                  }
+                  return prev - 1;
+                });
+              }, 1000);
+            }
+            return () => clearInterval(timer);
+          }, [testState, timeLeft]);
+
+          const formatTime = (seconds) => {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+          };
+
+          const handleStart = () => setTestState('running');
+          const handlePause = () => setTestState('paused');
+          const handleResume = () => setTestState('running');
+          const handleOptionSelect = (optionIndex) => setAnswers(prev => ({ ...prev, [currentQIndex]: optionIndex }));
+          const toggleMarkForReview = () => setMarkedForReview(prev => ({ ...prev, [currentQIndex]: !prev[currentQIndex] }));
+          const handleNext = () => { if (currentQIndex < questions.length - 1) setCurrentQIndex(prev => prev + 1); };
+          const handlePrev = () => { if (currentQIndex > 0) setCurrentQIndex(prev => prev - 1); };
+          const handleForceSubmit = () => setTestState('submitted');
+          const handleSubmitRequest = () => setShowSubmitModal(true);
+          const confirmSubmit = () => { setShowSubmitModal(false); setTestState('submitted'); };
+          
+          const resetTest = () => setShowResetModal(true);
+          const confirmReset = () => {
+            setShowResetModal(false);
+            localStorage.removeItem('ukpsc_test_state_html');
+            setTestState('intro');
+            setAnswers({});
+            setMarkedForReview({});
+            setTimeLeft(TOTAL_TIME);
+            setCurrentQIndex(0);
+          };
+
+          const calculateScore = () => {
+            let score = 0, correct = 0, incorrect = 0, unattempted = 0;
+            questions.forEach((q, index) => {
+              if (answers[index] === undefined) unattempted++;
+              else if (answers[index] === q.correct) { score += 1; correct++; }
+              else { score -= 0.25; incorrect++; }
+            });
+            return { score, correct, incorrect, unattempted };
+          };
+
+          // Safely decodes base64 string while preserving Hindi/UTF-8 characters
+          const decodePayload = (encodedStr) => {
+            const binaryString = atob(encodedStr);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return new TextDecoder('utf-8').decode(bytes);
+          };
+
+          const handleImport = () => {
+            try {
+              const content = importText.trim();
+              let parsedQuestions;
+
+              if (content.startsWith('{') && content.includes('"encoded_payload"')) {
+                 const wrapper = JSON.parse(content);
+                 const decodedStr = decodePayload(wrapper.encoded_payload);
+                 parsedQuestions = JSON.parse(decodedStr);
+              } else {
+                 parsedQuestions = JSON.parse(content); // Fallback for plain json
+              }
+
+              if (Array.isArray(parsedQuestions) && parsedQuestions.length > 0 && parsedQuestions[0].text) {
+                setQuestions(parsedQuestions);
+                setShowImportModal(false);
+                setImportText('');
+                setImportError('');
+              } else setImportError('Invalid format.');
+            } catch (e) { setImportError('Failed to parse codified text.'); }
+          };
+
+          const handleFileUpload = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              try {
+                const content = event.target.result.trim();
+                let parsedQuestions;
+                
+                // Detect codified structure
+                if (content.startsWith('{') && content.includes('"encoded_payload"')) {
+                   const wrapper = JSON.parse(content);
+                   const decodedStr = decodePayload(wrapper.encoded_payload);
+                   parsedQuestions = JSON.parse(decodedStr);
+                } else {
+                   parsedQuestions = JSON.parse(content); // Legacy support
+                }
+
+                if (Array.isArray(parsedQuestions) && parsedQuestions.length > 0 && parsedQuestions[0].text) {
+                  setQuestions(parsedQuestions);
+                  setShowImportModal(false);
+                  setImportError('');
+                } else setImportError('Invalid Test Data structure.');
+              } catch (error) { setImportError('Security Decryption Failed. Ensure file is untouched.'); }
+            };
+            reader.readAsText(file);
+            e.target.value = null; 
+          };
+
+          if (testState === 'intro') {
+            return (
+              <div className="min-h-[100dvh] bg-paper flex items-center justify-center p-4 font-sans text-slate-800">
+                <div className="bg-white rounded-3xl shadow-[0_12px_40px_-16px_rgba(31,51,79,0.35)] max-w-md w-full p-7 md:p-10 text-center border border-slate-200">
+                  <div className="flex justify-center gap-3 mb-8" aria-hidden="true">
+                    {['A', 'B', 'C', 'D'].map((letter, i) => (
+                      <span key={letter} className={`w-11 h-11 rounded-full border-2 flex items-center justify-center text-base font-semibold ${i === 2 ? 'bg-brand-800 border-brand-800 text-white' : 'border-brand-300 text-brand-400'}`}>{letter}</span>
+                    ))}
+                  </div>
+                  <h1 className="text-3xl md:text-4xl font-bold text-brand-900 mb-3 tracking-tight text-balance">UKPSC Secure Mock</h1>
+                  <p className="text-slate-600 mb-8 text-lg leading-snug">Load your codified daily test file to begin.</p>
+
+                  <div className="grid grid-cols-2 mb-8 text-left border border-slate-200 rounded-2xl overflow-hidden divide-x divide-slate-200">
+                    <div className="p-4">
+                      <p className="text-sm text-slate-500 font-medium">Total Questions</p>
+                      <p className="text-2xl md:text-3xl font-bold text-brand-900 tabular-nums">{questions.length}</p>
+                    </div>
+                    <div className="p-4">
+                      <p className="text-sm text-slate-500 font-medium">Time Limit</p>
+                      <p className="text-2xl md:text-3xl font-bold text-brand-900 whitespace-nowrap">60 Mins</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col-reverse sm:flex-row gap-3">
+                    <button onClick={() => setShowImportModal(true)} className="flex-1 bg-white border-2 border-brand-700 text-brand-700 hover:bg-brand-50 font-semibold py-3.5 rounded-xl transition-colors active:scale-[0.98]">
+                      Load Encoded File
+                    </button>
+                    <button onClick={handleStart} className="flex-[2] bg-brand-800 hover:bg-brand-900 text-white font-semibold py-3.5 rounded-xl transition-colors shadow-md active:scale-[0.98]">
+                      Start Test
+                    </button>
+                  </div>
+                </div>
+
+                {}
+                {showImportModal && (
+                  <div className="fixed inset-0 bg-brand-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4">
+                    <div className="bg-white p-6 md:p-8 rounded-t-3xl sm:rounded-3xl max-w-lg w-full shadow-2xl max-h-[92dvh] overflow-y-auto">
+                      <h3 className="text-2xl font-bold text-brand-900 mb-1">Upload Codified Test</h3>
+                      <p className="text-slate-500 mb-5 text-sm">Upload the secure .json file. The app will decode it automatically.</p>
+
+                      <div className="mb-4">
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">Upload File (.json):</label>
+                        <input type="file" accept=".json" onChange={handleFileUpload} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer border border-slate-200 rounded-xl p-1.5" />
+                      </div>
+
+                      <div className="relative flex py-2 items-center">
+                        <div className="flex-grow border-t border-slate-200"></div>
+                        <span className="flex-shrink-0 mx-4 text-slate-400 text-sm">or paste text</span>
+                        <div className="flex-grow border-t border-slate-200"></div>
+                      </div>
+
+                      <textarea
+                        className="w-full h-32 p-3 border border-slate-300 rounded-xl mt-2 mb-2 text-sm font-mono focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none"
+                        placeholder="Paste the codified JSON text here..."
+                        value={importText}
+                        onChange={(e) => setImportText(e.target.value)}
+                      ></textarea>
+
+                      {importError && <p className="text-rose-600 text-sm font-medium mb-4">{importError}</p>}
+
+                      <div className="flex gap-3 mt-4">
+                        <button onClick={() => { setShowImportModal(false); setImportError(''); }} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition-colors">Cancel</button>
+                        <button onClick={handleImport} className="flex-1 bg-brand-800 hover:bg-brand-900 text-white font-semibold py-3 rounded-xl transition-colors">Decrypt & Load</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (testState === 'submitted') {
+            const stats = calculateScore();
+            return (
+              <div className="min-h-[100dvh] bg-paper p-4 md:p-8 font-sans print:bg-white print:p-0 print:m-0">
+                <div className="max-w-3xl mx-auto print:max-w-none">
+                  <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-10 mb-6 text-center print:border-none print:shadow-none print:mb-2 print:p-0">
+                    <h2 className="text-2xl md:text-3xl font-bold text-brand-900 mb-6 tracking-tight">Test Completed</h2>
+
+                    <div className="rounded-2xl bg-brand-800 text-white py-6 mb-3 print:bg-white print:text-slate-900 print:border print:border-slate-300 print:py-3">
+                      <p className="text-sm font-medium text-brand-200 print:text-slate-600">Final Score</p>
+                      <p className="text-5xl font-bold tabular-nums mt-1">{stats.score.toFixed(2)}</p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 mb-8 print:mb-2">
+                      <div className="bg-emerald-50 px-2 py-3 md:p-4 rounded-2xl border border-emerald-100">
+                        <p className="text-[13px] md:text-sm text-emerald-700 font-semibold mb-1">Correct</p>
+                        <p className="text-2xl md:text-3xl font-bold text-emerald-900 tabular-nums">{stats.correct}</p>
+                      </div>
+                      <div className="bg-rose-50 px-2 py-3 md:p-4 rounded-2xl border border-rose-100">
+                        <p className="text-[13px] md:text-sm text-rose-700 font-semibold mb-1">Incorrect</p>
+                        <p className="text-2xl md:text-3xl font-bold text-rose-900 tabular-nums">{stats.incorrect}</p>
+                      </div>
+                      <div className="bg-slate-100 px-2 py-3 md:p-4 rounded-2xl border border-slate-200">
+                        <p className="text-[13px] md:text-sm text-slate-600 font-semibold mb-1">Unattempted</p>
+                        <p className="text-2xl md:text-3xl font-bold text-slate-900 tabular-nums">{stats.unattempted}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row justify-center gap-3 print:hidden">
+                      <button onClick={() => window.print()} className="px-6 py-3 bg-brand-800 hover:bg-brand-900 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
+                        Print Results
+                      </button>
+                      <button onClick={resetTest} className="px-6 py-3 bg-white border-2 border-slate-300 hover:bg-slate-50 text-slate-800 font-semibold rounded-xl transition-colors active:scale-[0.98]">
+                        Back to Home
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {questions.map((q, idx) => {
+                      const userAnswer = answers[idx];
+                      const isCorrect = userAnswer === q.correct;
+                      const isUnattempted = userAnswer === undefined;
+                      return (
+                        <div key={idx} className={`bg-white rounded-2xl border-2 p-5 md:p-6 print:break-inside-avoid ${isUnattempted ? 'border-slate-200' : isCorrect ? 'border-emerald-200' : 'border-rose-200'}`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-semibold text-sm border-2 border-slate-300 text-slate-700 tabular-nums">{idx + 1}</span>
+                            <span className={`text-sm font-semibold px-3 py-1 rounded-full ${isUnattempted ? 'bg-slate-100 text-slate-600' : isCorrect ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                              {isUnattempted ? 'Not attempted' : isCorrect ? 'Correct' : 'Incorrect'}
+                            </span>
+                          </div>
+                          <p className="text-lg font-medium text-slate-900 leading-relaxed mb-4">{q.text}</p>
+
+                          <div className="space-y-2 mb-4">
+                            {q.options.map((opt, optIdx) => {
+                              let bgClass = "bg-slate-50 text-slate-600 border-slate-200";
+                              if (optIdx === q.correct) bgClass = "bg-emerald-50 text-emerald-900 font-medium border-emerald-300";
+                              else if (optIdx === userAnswer) bgClass = "bg-rose-50 text-rose-900 border-rose-300";
+                              return (
+                                <div key={optIdx} className={`p-3 rounded-xl border flex items-center gap-3 ${bgClass}`}>
+                                  <span className="w-7 h-7 rounded-full border border-current flex-shrink-0 flex items-center justify-center text-xs font-semibold">{String.fromCharCode(65 + optIdx)}</span>
+                                  <span className="flex-1 leading-snug">{opt}</span>
+                                  {optIdx === q.correct && <span className="text-xs font-semibold text-emerald-700 flex-shrink-0">Correct answer</span>}
+                                  {optIdx !== q.correct && optIdx === userAnswer && <span className="text-xs font-semibold text-rose-700 flex-shrink-0">Your answer</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="bg-brand-50 border-l-4 border-brand-400 p-4 rounded-r-xl">
+                            <p className="text-sm font-semibold text-brand-900 mb-1">Explanation:</p>
+                            <p className="text-sm text-brand-800 leading-relaxed">{q.explanation}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          const currentQ = questions[currentQIndex];
+          const isAnswered = answers[currentQIndex] !== undefined;
+          const isMarked = markedForReview[currentQIndex];
+
+          return (
+            <div className="h-[100dvh] relative flex flex-col bg-paper font-sans overflow-hidden">
+              <header className="bg-brand-800 text-white h-16 flex items-center justify-between px-3 md:px-6 z-10 flex-shrink-0">
+                <div className="flex items-center gap-4">
+                  <button onClick={() => setShowGrid(!showGrid)} className="md:hidden px-3 py-2 text-sm font-semibold bg-white/10 hover:bg-white/20 rounded-lg transition-colors">Grid</button>
+                  <h1 className="font-bold text-lg tracking-tight hidden md:block">UKPSC Mock</h1>
+                </div>
+
+                <div className="flex items-center gap-2 bg-white/10 py-1.5 pl-4 pr-3 rounded-full">
+                  <span className="font-bold text-xl tabular-nums">{formatTime(timeLeft)}</span>
+                  {testState === 'running' ? (
+                     <button onClick={handlePause} className="ml-1 text-sm text-brand-100 hover:text-white font-semibold">Pause</button>
+                  ) : (
+                     <button onClick={handleResume} className="ml-1 text-sm text-amber-300 hover:text-amber-200 font-semibold">Resume</button>
+                  )}
+                </div>
+
+                <button onClick={handleSubmitRequest} className="bg-white hover:bg-brand-50 text-brand-800 px-4 py-2 rounded-lg font-semibold text-sm transition-colors">Submit</button>
+              </header>
+
+              {showSubmitModal && (
+                <div className="fixed inset-0 bg-brand-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                  <div className="bg-white p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+                    <h2 className="text-2xl font-bold text-brand-900 mb-2">Submit Test?</h2>
+                    <div className="flex gap-3 mt-6">
+                      <button onClick={() => setShowSubmitModal(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition-colors">Cancel</button>
+                      <button onClick={confirmSubmit} className="flex-1 bg-brand-800 hover:bg-brand-900 text-white font-semibold py-3 rounded-xl transition-colors">Submit</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {testState === 'paused' && (
+                <div className="fixed inset-0 bg-brand-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                  <div className="bg-white p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+                    <h2 className="text-2xl font-bold text-brand-900 mb-2">Test Paused</h2>
+                    <button onClick={handleResume} className="w-full bg-brand-800 hover:bg-brand-900 text-white font-semibold py-3 mt-4 rounded-xl transition-colors">Resume Test</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex-1 flex overflow-hidden">
+                <div className={`${showGrid ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} md:translate-x-0 md:shadow-none transition-transform absolute md:static top-16 bottom-0 left-0 w-64 bg-white border-r border-slate-200 z-20 flex flex-col`}>
+                  <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+                    <h3 className="font-semibold text-brand-900">Grid</h3>
+                    <button onClick={() => setShowGrid(false)} className="md:hidden text-sm font-medium text-slate-500 px-2 py-1">Close</button>
+                  </div>
+                  <div className="p-4 overflow-y-auto flex-1">
+                    <div className="grid grid-cols-5 gap-2">
+                      {questions.map((q, idx) => {
+                        let btnClass = "bg-white border-slate-300 text-slate-600";
+                        if (answers[idx] !== undefined) btnClass = "bg-brand-800 border-brand-800 text-white";
+                        if (markedForReview[idx]) btnClass = "bg-amber-100 border-amber-400 text-amber-900";
+                        if (currentQIndex === idx) btnClass += " ring-2 ring-brand-500 ring-offset-2";
+                        return (
+                          <button key={idx} onClick={() => { setCurrentQIndex(idx); if(window.innerWidth < 768) setShowGrid(false); }} className={`w-full aspect-square flex items-center justify-center rounded-full border-2 text-sm font-semibold tabular-nums ${btnClass}`}>
+                            {idx + 1}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="p-4 border-t border-slate-100 space-y-2 text-sm text-slate-600">
+                    <div className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-brand-800"></span>Answered</div>
+                    <div className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-amber-100 border-2 border-amber-400"></span>Marked for review</div>
+                    <div className="flex items-center gap-2"><span className="w-4 h-4 rounded-full border-2 border-slate-300"></span>Not answered</div>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col overflow-y-auto">
+                  <div className="flex-1 max-w-3xl w-full mx-auto px-4 md:px-8 pt-5 md:pt-8 flex flex-col">
+                    <div className="flex justify-between items-center mb-5">
+                      <span className="text-sm font-semibold text-brand-700 bg-brand-50 px-3 py-1.5 rounded-full tabular-nums">Question {currentQIndex + 1} of {questions.length}</span>
+                      <button onClick={toggleMarkForReview} className={`text-sm font-semibold px-3 py-1.5 rounded-full border transition-colors ${isMarked ? 'bg-amber-100 text-amber-900 border-amber-400' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                        {isMarked ? 'Marked' : 'Mark for Review'}
+                      </button>
+                    </div>
+
+                    <h2 className="text-xl md:text-2xl font-medium text-slate-900 leading-relaxed mb-7">{currentQ.text}</h2>
+
+                    <div className="space-y-3 mb-6">
+                      {currentQ.options.map((opt, optIdx) => {
+                        const isSelected = answers[currentQIndex] === optIdx;
+                        return (
+                          <label key={optIdx} className={`flex items-center gap-4 p-4 rounded-2xl border-2 cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-brand-500 focus-within:ring-offset-2 ${isSelected ? 'border-brand-700 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-300'}`}>
+                            <input type="radio" name={`question-${currentQIndex}`} className="sr-only" checked={isSelected} onChange={() => handleOptionSelect(optIdx)} />
+                            <span className={`w-9 h-9 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-sm font-semibold ${isSelected ? 'bg-brand-800 border-brand-800 text-white' : 'border-slate-300 text-slate-500'}`}>{String.fromCharCode(65 + optIdx)}</span>
+                            <span className={`text-base md:text-lg leading-snug ${isSelected ? 'text-brand-900 font-medium' : 'text-slate-700'}`}>{opt}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {isAnswered && (
+                       <div className="text-right mb-4">
+                         <button onClick={() => { const newAns = {...answers}; delete newAns[currentQIndex]; setAnswers(newAns); }} className="text-sm text-slate-500 hover:text-slate-700 underline underline-offset-2 py-1">Clear Response</button>
+                       </div>
+                    )}
+
+                    <div className="flex-1"></div>
+
+                    <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-4 bg-paper/95 backdrop-blur border-t border-slate-200 flex items-center justify-between">
+                      <button onClick={handlePrev} disabled={currentQIndex === 0} className="px-6 py-3 rounded-xl font-semibold text-slate-700 bg-white border-2 border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors active:scale-[0.98]">Previous</button>
+                      {currentQIndex === questions.length - 1 ? (
+                         <button onClick={handleSubmitRequest} className="px-8 py-3 rounded-xl font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors active:scale-[0.98]">Submit Test</button>
+                      ) : (
+                        <button onClick={handleNext} className="px-8 py-3 rounded-xl font-semibold text-white bg-brand-800 hover:bg-brand-900 transition-colors active:scale-[0.98]">Next</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        ReactDOM.render(<UKPSCTestApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
