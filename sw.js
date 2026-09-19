@@ -1,7 +1,7 @@
 /* UKPSC Mock — service worker
    Makes the app open instantly and work offline after the first online visit.
    Bump CACHE_VERSION whenever you change index.html so phones pick up the update. */
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v3';
 const CACHE = 'ukpsc-mock-' + CACHE_VERSION;
 
 const SHELL = [
