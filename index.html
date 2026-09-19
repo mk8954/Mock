@@ -487,7 +487,7 @@
                               {isUnattempted ? 'Not attempted' : isCorrect ? 'Correct' : 'Incorrect'}
                             </span>
                           </div>
-                          <p className="text-lg font-medium text-slate-900 leading-relaxed mb-4">{q.text}</p>
+                          <p className="text-lg font-medium text-slate-900 leading-relaxed mb-4 whitespace-pre-line">{q.text}</p>
 
                           <div className="space-y-2 mb-4">
                             {q.options.map((opt, optIdx) => {
@@ -497,7 +497,7 @@
                               return (
                                 <div key={optIdx} className={`p-3 rounded-xl border flex items-center gap-3 ${bgClass}`}>
                                   <span className="w-7 h-7 rounded-full border border-current flex-shrink-0 flex items-center justify-center text-xs font-semibold">{String.fromCharCode(65 + optIdx)}</span>
-                                  <span className="flex-1 leading-snug">{opt}</span>
+                                  <span className="flex-1 leading-normal whitespace-pre-line">{opt}</span>
                                   {optIdx === q.correct && <span className="text-xs font-semibold text-emerald-700 flex-shrink-0">Correct answer</span>}
                                   {optIdx !== q.correct && optIdx === userAnswer && <span className="text-xs font-semibold text-rose-700 flex-shrink-0">Your answer</span>}
                                 </div>
@@ -506,7 +506,7 @@
                           </div>
                           <div className="bg-brand-50 border-l-4 border-brand-400 p-4 rounded-r-xl">
                             <p className="text-sm font-semibold text-brand-900 mb-1">Explanation:</p>
-                            <p className="text-sm text-brand-800 leading-relaxed">{q.explanation}</p>
+                            <p className="text-sm text-brand-800 leading-relaxed whitespace-pre-line">{q.explanation}</p>
                           </div>
                         </div>
                       );
@@ -600,7 +600,7 @@
                       </button>
                     </div>
 
-                    <h2 className="text-xl md:text-2xl font-medium text-slate-900 leading-relaxed mb-7">{currentQ.text}</h2>
+                    <h2 className="text-xl md:text-2xl font-medium text-slate-900 leading-relaxed mb-7 whitespace-pre-line">{currentQ.text}</h2>
 
                     <div className="space-y-3 mb-6">
                       {currentQ.options.map((opt, optIdx) => {
@@ -609,7 +609,7 @@
                           <label key={optIdx} className={`flex items-center gap-4 p-4 rounded-2xl border-2 cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-brand-500 focus-within:ring-offset-2 ${isSelected ? 'border-brand-700 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-300'}`}>
                             <input type="radio" name={`question-${currentQIndex}`} className="sr-only" checked={isSelected} onChange={() => handleOptionSelect(optIdx)} />
                             <span className={`w-9 h-9 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-sm font-semibold ${isSelected ? 'bg-brand-800 border-brand-800 text-white' : 'border-slate-300 text-slate-500'}`}>{String.fromCharCode(65 + optIdx)}</span>
-                            <span className={`text-base md:text-lg leading-snug ${isSelected ? 'text-brand-900 font-medium' : 'text-slate-700'}`}>{opt}</span>
+                            <span className={`text-base md:text-lg leading-normal whitespace-pre-line ${isSelected ? 'text-brand-900 font-medium' : 'text-slate-700'}`}>{opt}</span>
                           </label>
                         );
                       })}
